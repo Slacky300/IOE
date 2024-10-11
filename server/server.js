@@ -39,7 +39,7 @@ const startServer = async () => {
 
     const connectDb = async () => {
         try {
-            await mongoose.connect('mongodb://localhost:27017/ioe_empty');
+            await mongoose.connect('mongodb+srv://rehmankhan300a:XhId8jvbJSctfduX@cluster0.plrckac.mongodb.net/ioe_empty?retryWrites=true&w=majority');
             console.log('MongoDB connected 🤖');
         } catch (err) {
             console.error(err.message);
