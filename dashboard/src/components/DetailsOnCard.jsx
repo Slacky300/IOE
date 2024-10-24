@@ -13,7 +13,14 @@ const DetailsOnCard = () => {
   useEffect(() => {
     const fetchWeeklyStats = async () => {
       try {
-        const response = await axios.get('http://localhost:8080/api/gpsdata/weekly');
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/gpsdata/weekly`, {
+          params: {
+              page: 1, // or any other page number
+              limit: 10, // or any other limit
+              startDate: '2024-10-6', // start date for filtering
+              endDate: '2024-10-12' // today's date in 'YYYY-MM-DD' format
+          }
+      });
         setStats(response.data);
       } catch (error) {
         console.error('Error fetching weekly stats:', error);

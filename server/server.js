@@ -56,59 +56,22 @@ const startServer = async () => {
 
 startServer();
 
-app.post('/api/gpsdata', async (req, res) => {
-    const { latitude, longitude, speed, timestamp } = req.body;
 
-    if(!latitude || !longitude || !speed || !timestamp){
-        console.log("Missing");
-        return res.status(400).json({ error: 'Missing required data' });
-    }
-
-
-    const currPoint = { latitude, longitude };
-    const distanceTravelled = calculateDistance(lastPoint, currPoint);
-
-    const caloriesBurned = calculateCalories(speed, distanceTravelled);
-
-    const gpsData = new GpsData({
-        latitude,
-        longitude,
-        speed,
-        timestamp: new Date(timestamp),
-        distanceTravelled,
-        caloriesBurned
-    });
-
-    await gpsData.save();
-
-    lastPoint = { latitude, longitude };
-
-    res.status(201).json({
-        message: 'Data saved successfully',
-        distanceTravelled,
-        caloriesBurned
-    });
-});
 
 app.post('/receive', async (req, res) => {
     try {
         const { latitude, longitude, altitude, date, time } = req.body;
 
-        // Combine date and time to create a timestamp
         const timestamp = new Date(`${date}T${time}`);
 
         const currPoint = { latitude: parseFloat(latitude), longitude: parseFloat(longitude) };
 
-        // Assuming speed is calculated elsewhere or comes with the data
-        const speed = 10; // Placeholder speed in km/h for now
+        const speed = 10; 
 
-        // Calculate distance traveled from the last known point
         const distanceTravelled = calculateDistance(lastPoint, currPoint);
 
-        // Calculate calories burned based on speed and distance
         const caloriesBurned = calculateCalories(speed, distanceTravelled);
 
-        // Create a new GpsData document
         const gpsData = new GpsData({
             latitude: parseFloat(latitude),
             longitude: parseFloat(longitude),
@@ -118,13 +81,10 @@ app.post('/receive', async (req, res) => {
             caloriesBurned
         });
 
-        // Save the GPS data to the database
         await gpsData.save();
 
-        // Update the last known point
         lastPoint = currPoint;
 
-        // Respond with success
         res.status(201).json({
             message: 'Data saved successfully',
             distanceTravelled,
@@ -137,7 +97,7 @@ app.post('/receive', async (req, res) => {
 });
 
 app.get('/api/gpsdata', async (req, res) => {
-    const { page = 1, limit = 10, startDate, endDate } = req.query;
+    const { page = 1, limit = 50, startDate, endDate } = req.query;
 
     const filter = {};
     if (startDate || endDate) {
@@ -148,11 +108,11 @@ app.get('/api/gpsdata', async (req, res) => {
 
     try {
         const gpsData = await GpsData.find(filter)
-            .sort({ timestamp: -1 }) // Sort by timestamp in descending order
-            .limit(limit * 1) // Limit the number of results per page
-            .skip((page - 1) * limit); // Skip results for pagination
+            .sort({ timestamp: -1 }) 
+            .limit(limit * 1) 
+            .skip((page - 1) * limit); 
 
-        const count = await GpsData.countDocuments(filter); // Get total count for pagination
+        const count = await GpsData.countDocuments(filter); 
 
         res.json({
             gpsData: gpsData.map(data => ({
@@ -174,21 +134,26 @@ app.get('/api/gpsdata', async (req, res) => {
 
 
 app.get('/api/weeklyreport', async (req, res) => {
-    const now = new Date();
-    const oneWeekAgo = new Date(now);
-    oneWeekAgo.setDate(now.getDate() - 7);
+    const { startDate, endDate } = req.query;
+
+    const now = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date(now);
+    if (!startDate) start.setDate(now.getDate() - 7);
 
     try {
         const weeklyData = await GpsData.aggregate([
             {
-                $match: { timestamp: { $gte: oneWeekAgo, $lte: now } }
+                $match: {
+                    timestamp: { $gte: start, $lte: now }
+                }
             },
             {
                 $group: {
                     _id: { $dayOfWeek: "$timestamp" },
                     totalDistance: { $sum: "$distanceTravelled" },
-                    avgSpeed: { $avg: "$speed" },  // Assuming you have speed data
-                    count: { $sum: 1 }
+                    avgSpeed: { $avg: "$speed" },
+                    count: { $sum: 1 },
+                    timestamps: { $push: "$timestamp" } // Collect all timestamps for this day
                 }
             },
             {
@@ -196,7 +161,18 @@ app.get('/api/weeklyreport', async (req, res) => {
             }
         ]);
 
-        res.json({ weeklyData });
+        // Format the result to include human-readable day names and timestamps
+        const formattedData = weeklyData.map(dayData => {
+            return {
+                dayOfWeek: dayData._id,
+                totalDistance: dayData.totalDistance,
+                avgSpeed: dayData.avgSpeed,
+                count: dayData.count,
+                timestamps: dayData.timestamps // Include the timestamps
+            };
+        });
+
+        res.json({ weeklyData: formattedData });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch weekly data' });
     }
@@ -205,18 +181,21 @@ app.get('/api/weeklyreport', async (req, res) => {
 
 
 app.get('/api/gpsdata/weekly', async (req, res) => {
-    const today = new Date();
-    const startOfWeek = new Date(today.setDate(today.getDate() - today.getDay())); // Get start of the week (Sunday)
+    const { startDate, endDate } = req.query;
+
+    // Set default values for startDate and endDate
+    const today = endDate ? new Date(endDate) : new Date();  // Defaults to today's date if endDate is not provided
+    const startOfWeek = startDate ? new Date(startDate) : new Date(today.setDate(today.getDate() - today.getDay()));  // Defaults to start of the week if startDate is not provided
 
     try {
-        const gpsData = await GpsData.find({ timestamp: { $gte: startOfWeek } });
+        const gpsData = await GpsData.find({ timestamp: { $gte: startOfWeek, $lte: today } });
 
-        // Calculate total distance and calories burned
+        // Calculate total distance, calories burned, and time spent
         const totalDistance = gpsData.reduce((acc, data) => acc + data.distanceTravelled, 0);
         const totalCalories = gpsData.reduce((acc, data) => acc + data.caloriesBurned, 0);
-        const totalTime = gpsData.reduce((acc, data) => acc + data.distanceTravelled / data.speed, 0); // Total time in hours
+        const totalTime = gpsData.reduce((acc, data) => acc + (data.distanceTravelled / data.speed), 0); // Total time in hours
         const totalRides = gpsData.length;
-        const averageSpeed = (totalDistance / totalTime).toFixed(2);
+        const averageSpeed = totalRides > 0 ? (totalDistance / totalTime).toFixed(2) : 0;  // Avoid division by zero
 
         res.json({
             totalDistance,

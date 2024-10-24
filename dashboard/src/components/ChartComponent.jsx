@@ -5,11 +5,11 @@ import 'chart.js/auto';
 
 const ChartComponent = () => {
   const [chartData, setChartData] = useState({
-    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], // Default labels
+    labels: [], 
     datasets: [
       {
         label: 'Distance (km)',
-        data: [], // Initially empty
+        data: Array(7).fill(0),
         borderColor: 'rgba(75,192,192,1)',
         backgroundColor: 'rgba(75,192,192,0.2)',
         fill: true,
@@ -17,44 +17,56 @@ const ChartComponent = () => {
     ],
   });
 
-  const getTodayIndex = () => {
-    const today = new Date();
-    return today.getDay(); // 0 (Sunday) to 6 (Saturday)
-  };
+ 
 
-  const reorderDataToStartFromToday = (data) => {
-    const todayIndex = getTodayIndex();
-    // Shift the data array so that the week starts from today
-    return [...data.slice(todayIndex), ...data.slice(0, todayIndex)];
+  const generateLabelsForCurrentWeek = () => {
+    const today = new Date();
+    const labels = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(today);
+      day.setDate(today.getDate() - today.getDay() + i); 
+      labels.push(day.toLocaleString('en-US', { weekday: 'short' })); 
+    }
+    return labels;
   };
 
   useEffect(() => {
-    // Function to fetch weekly distance data from the backend
     const fetchData = async () => {
       try {
-        const response = await axios.get('http://localhost:8080/api/weeklyreport'); // Replace with your actual API URL
-        const reportData = response.data.weeklyData.map(item => item.totalDistance);
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/weeklyreport`, {
+          params: {
+            page: 1, 
+            limit: 10,
+            startDate: '2024-10-06', 
+            endDate: new Date().toISOString().split('T')[0], 
+          },
+        });
 
-        // Reorder the data so it starts from today
-        const reorderedData = reorderDataToStartFromToday(reportData);
+        const distanceData = Array(7).fill(0);
 
-        // Update the chart with fetched and reordered data
-        setChartData(prevState => ({
-          ...prevState,
+        response.data.weeklyData.forEach(item => {
+          const dayIndex = item.dayOfWeek - 1; 
+          distanceData[dayIndex] = item.totalDistance; 
+        });
+
+        const labels = generateLabelsForCurrentWeek();
+
+        setChartData({
+          labels, 
           datasets: [
             {
-              ...prevState.datasets[0],
-              data: reorderedData, // Use the reordered data
+              ...chartData.datasets[0],
+              data: distanceData,
             },
           ],
-        }));
+        });
       } catch (error) {
         console.error('Failed to fetch weekly report data:', error);
       }
     };
 
     fetchData();
-  }, []); // Empty dependency array to fetch data only once when the component mounts
+  }, []); 
 
   return (
     <div className="card mb-4">
